@@ -168,7 +168,9 @@ class Editor(QObject):
 
         self.log.info(f"Used translator API: {translator.__class__.__name__}")
 
-        texts: list[str] = [selected_string.original for selected_string in strings]
+        texts: list[str] = list(
+            dict.fromkeys(s.original for s in strings)
+        )
         result: dict[str, str] = translator.mass_translate(texts, self.language)
 
         for string in strings:
