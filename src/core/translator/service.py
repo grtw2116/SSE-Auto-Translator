@@ -9,6 +9,7 @@ from core.config.translator_config import TranslatorConfig
 from .apis import TranslatorApi
 from .deepl import DeepLTranslator
 from .google import GoogleTranslator
+from .openai_translator import OpenAITranslator
 from .translator import Translator
 
 
@@ -39,6 +40,7 @@ class TranslatorService(Singleton):
         translators: dict[TranslatorApi, type[Translator]] = {
             TranslatorApi.Google: GoogleTranslator,
             TranslatorApi.DeepL: DeepLTranslator,
+            TranslatorApi.OpenAI: OpenAITranslator,
         }
 
         translator_cls: type[Translator] = translators[

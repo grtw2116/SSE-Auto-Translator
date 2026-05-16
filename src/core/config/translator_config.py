@@ -22,6 +22,12 @@ class TranslatorConfig(BaseConfig):
     )
     """The API key for the translator API."""
 
+    openai_base_url: str = ""
+    """The base URL for the OpenAI-compatible API (empty = use OpenAI default)."""
+
+    openai_model: str = "gpt-4o-mini"
+    """The model name to use for the OpenAI-compatible API."""
+
     show_confirmation_dialogs: bool = True
     """Whether to ask for confirmation before starting a machine translation."""
 
