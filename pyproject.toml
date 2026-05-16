@@ -13,6 +13,7 @@ dependencies = [
     "cutleast-core-lib",
     "deepl",
     "googletrans",
+    "openai",
     "lingua-language-detector",
     "lz4",
     "mod-manager-lib",

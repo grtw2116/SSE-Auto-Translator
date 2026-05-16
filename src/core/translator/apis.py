@@ -13,3 +13,6 @@ class TranslatorApi(Enum):
 
     DeepL = "DeepL"
     """DeepL translator API (requires API key)."""
+
+    OpenAI = "OpenAI-compatible"
+    """OpenAI-compatible LLM API (requires API key and model configuration)."""

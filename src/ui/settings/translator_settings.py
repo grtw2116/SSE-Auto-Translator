@@ -8,10 +8,13 @@ from cutleast_core_lib.ui.settings.settings_page import SettingsPage
 from cutleast_core_lib.ui.widgets.enum_radiobutton_widget import EnumRadiobuttonsWidget
 from cutleast_core_lib.ui.widgets.key_edit import KeyLineEdit
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QFormLayout, QLabel, QWidget
+from PySide6.QtWidgets import QCheckBox, QFormLayout, QLabel, QLineEdit, QWidget
 
 from core.config.translator_config import TranslatorConfig
 from core.translator.apis import TranslatorApi
+
+APIS_REQUIRING_KEY = {TranslatorApi.DeepL, TranslatorApi.OpenAI}
+"""Translator APIs that require an API key."""
 
 
 class TranslatorSettings(SettingsPage[TranslatorConfig]):
@@ -23,6 +26,12 @@ class TranslatorSettings(SettingsPage[TranslatorConfig]):
 
     __api_selector: EnumRadiobuttonsWidget[TranslatorApi]
     __api_key_entry: KeyLineEdit
+    __api_key_label: QLabel
+
+    __openai_base_url_label: QLabel
+    __openai_base_url_entry: QLineEdit
+    __openai_model_label: QLabel
+    __openai_model_entry: QLineEdit
 
     __show_confirmations_box: QCheckBox
 
@@ -49,22 +58,53 @@ class TranslatorSettings(SettingsPage[TranslatorConfig]):
         )
         self.__flayout.addRow(self.tr("Translator API"), self.__api_selector)
 
-        api_key_label = QLabel(self.tr("Translator API key"))
+        requires_key = self._initial_config.translator in APIS_REQUIRING_KEY
+
+        self.__api_key_label = QLabel(self.tr("Translator API key"))
         self.__api_key_entry = KeyLineEdit()
         if self._initial_config.api_key:
             self.__api_key_entry.setText(self._initial_config.api_key)
-        api_key_label.setEnabled(bool(self._initial_config.api_key))
-        self.__api_key_entry.setEnabled(bool(self._initial_config.api_key))
+        self.__api_key_label.setEnabled(requires_key)
+        self.__api_key_entry.setEnabled(requires_key)
         self.__api_key_entry.textChanged.connect(lambda _: self.changed_signal.emit())
-        self.__flayout.addRow(api_key_label, self.__api_key_entry)
+        self.__flayout.addRow(self.__api_key_label, self.__api_key_entry)
 
-        # TODO: Make this dynamic depending on the selected translator
-        self.__api_selector.currentValueChanged.connect(
-            lambda translator_api: (
-                self.__api_key_entry.setEnabled(translator_api == TranslatorApi.DeepL),
-                api_key_label.setEnabled(translator_api == TranslatorApi.DeepL),
-            )
+        is_openai = self._initial_config.translator == TranslatorApi.OpenAI
+
+        self.__openai_base_url_label = QLabel(self.tr("API base URL"))
+        self.__openai_base_url_entry = QLineEdit()
+        self.__openai_base_url_entry.setPlaceholderText("https://api.openai.com/v1")
+        if self._initial_config.openai_base_url:
+            self.__openai_base_url_entry.setText(self._initial_config.openai_base_url)
+        self.__openai_base_url_label.setEnabled(is_openai)
+        self.__openai_base_url_entry.setEnabled(is_openai)
+        self.__openai_base_url_entry.textChanged.connect(
+            lambda _: self.changed_signal.emit()
         )
+        self.__flayout.addRow(self.__openai_base_url_label, self.__openai_base_url_entry)
+
+        self.__openai_model_label = QLabel(self.tr("Model"))
+        self.__openai_model_entry = QLineEdit()
+        self.__openai_model_entry.setText(self._initial_config.openai_model)
+        self.__openai_model_label.setEnabled(is_openai)
+        self.__openai_model_entry.setEnabled(is_openai)
+        self.__openai_model_entry.textChanged.connect(
+            lambda _: self.changed_signal.emit()
+        )
+        self.__flayout.addRow(self.__openai_model_label, self.__openai_model_entry)
+
+        self.__api_selector.currentValueChanged.connect(self.__on_api_changed)
+
+    def __on_api_changed(self, translator_api: TranslatorApi) -> None:
+        requires_key = translator_api in APIS_REQUIRING_KEY
+        self.__api_key_entry.setEnabled(requires_key)
+        self.__api_key_label.setEnabled(requires_key)
+
+        is_openai = translator_api == TranslatorApi.OpenAI
+        self.__openai_base_url_label.setEnabled(is_openai)
+        self.__openai_base_url_entry.setEnabled(is_openai)
+        self.__openai_model_label.setEnabled(is_openai)
+        self.__openai_model_entry.setEnabled(is_openai)
 
     def __init_confirmation_box(self) -> None:
         self.__show_confirmations_box = QCheckBox(
@@ -82,4 +122,6 @@ class TranslatorSettings(SettingsPage[TranslatorConfig]):
     def apply(self, config: TranslatorConfig) -> None:
         config.translator = self.__api_selector.getCurrentValue()
         config.api_key = self.__api_key_entry.text().strip() or None
+        config.openai_base_url = self.__openai_base_url_entry.text().strip()
+        config.openai_model = self.__openai_model_entry.text().strip() or "gpt-4o-mini"
         config.show_confirmation_dialogs = self.__show_confirmations_box.isChecked()
