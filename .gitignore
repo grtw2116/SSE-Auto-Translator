@@ -8,6 +8,7 @@
 /dist
 /experiments
 /main.dist
+/.nuitka_build_cache
 /qt_lupdate.json
 /res/loc/*.qm
 /src/resources_rc.py
