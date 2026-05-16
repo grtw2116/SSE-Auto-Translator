@@ -98,6 +98,7 @@ class EditorTab(QWidget):
         self.__tool_bar.filter_changed.connect(self.set_state_filter)
         self.__tool_bar.help_requested.connect(self.__show_help)
         self.__tool_bar.legacy_import_requested.connect(self.__import_legacy)
+        self.__tool_bar.xtranslator_import_requested.connect(self.__import_xtranslator)
         self.__tool_bar.apply_database_requested.connect(self.__apply_database)
         self.__tool_bar.search_and_replace_requested.connect(self.__search_and_replace)
         self.__tool_bar.api_translation_requested.connect(self.__translate_with_api)
@@ -241,6 +242,41 @@ class EditorTab(QWidget):
                 return
 
             self.__editor.import_legacy_dsd_translation(filepath)
+
+    def __import_xtranslator(self) -> None:
+        """
+        Opens file dialog to choose an xTranslator XML file (SSTXMLRessources format).
+        """
+
+        fdialog = QFileDialog()
+        fdialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        fdialog.setNameFilters([self.tr("xTranslator XML file") + " (*.xml)"])
+        fdialog.setWindowTitle(self.tr("Import xTranslator XML..."))
+
+        if fdialog.exec() == QFileDialog.DialogCode.Rejected:
+            return
+
+        selected_files = fdialog.selectedFiles()
+
+        if not selected_files:
+            return
+
+        filepath = Path(selected_files[0])
+        if not filepath.is_file():
+            return
+
+        matched = self.__editor.import_xtranslator_xml(filepath)
+
+        messagebox = QMessageBox(QApplication.activeModalWidget())
+        messagebox.setWindowTitle(self.tr("Import complete"))
+        messagebox.setText(
+            self.tr(
+                "Applied %n entry from xTranslator XML.",
+                "Applied %n entries from xTranslator XML.",
+                matched,
+            )
+        )
+        messagebox.exec()
 
     def __edit_string(self, string: Optional[String] = None) -> None:
         """

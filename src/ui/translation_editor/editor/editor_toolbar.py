@@ -32,6 +32,9 @@ class EditorToolbar(QToolBar):
     legacy_import_requested = Signal()
     """Signal emitted when the user clicks on the import legacy action."""
 
+    xtranslator_import_requested = Signal()
+    """Signal emitted when the user clicks on the import xTranslator XML action."""
+
     apply_database_requested = Signal()
     """Signal emitted when the user clicks on the apply database action."""
 
@@ -101,6 +104,12 @@ class EditorToolbar(QToolBar):
             self.tr("Import pre-v1.1 translation..."),
         )
         import_legacy_action.triggered.connect(self.legacy_import_requested.emit)
+
+        xtranslator_import_action: QAction = self.addAction(
+            IconProvider.get_qta_icon("mdi6.xml"),
+            self.tr("Import xTranslator XML..."),
+        )
+        xtranslator_import_action.triggered.connect(self.xtranslator_import_requested.emit)
 
         apply_database_action: QAction = self.addAction(
             IconProvider.get_qta_icon("mdi6.database-refresh-outline"),

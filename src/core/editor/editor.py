@@ -4,6 +4,7 @@ Copyright (c) Cutleast
 
 import logging
 import re
+import xml.etree.ElementTree as ET
 from copy import copy, deepcopy
 from pathlib import Path
 from typing import Optional
@@ -350,3 +351,80 @@ class Editor(QObject):
         self.log.info("Legacy translation imported.")
 
         return strings_modified
+
+    def import_xtranslator_xml(self, xml_file: Path) -> int:
+        """
+        Imports an xTranslator XML translation (SSTXMLRessources format).
+
+        Args:
+            xml_file (Path): Path to the xTranslator XML file
+
+        Returns:
+            int: Number of XML entries matched and applied
+        """
+
+        self.log.info(f"Importing xTranslator XML from '{xml_file}'...")
+
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+
+        content = root.find("Content")
+        if content is None:
+            self.log.warning("No <Content> element found in XML file.")
+            return 0
+
+        # Build lookup tables from current strings
+        by_edid_type: dict[tuple[str, str], StringList] = {}
+        by_original_type: dict[tuple[str, str], StringList] = {}
+        for string in self.all_strings:
+            if isinstance(string, PluginString) and string.editor_id:
+                key = (string.editor_id.lower(), string.type)
+                by_edid_type.setdefault(key, []).append(string)
+            rec_type = string.type if isinstance(string, PluginString) else ""
+            by_original_type.setdefault((string.original, rec_type), []).append(string)
+
+        entries_matched: int = 0
+        for str_elem in content.findall("String"):
+            edid_elem = str_elem.find("EDID")
+            rec_elem = str_elem.find("REC")
+            source_elem = str_elem.find("Source")
+            dest_elem = str_elem.find("Dest")
+
+            if source_elem is None or dest_elem is None:
+                continue
+
+            original: str = source_elem.text or ""
+            translated: str = dest_elem.text or ""
+
+            if not translated:
+                continue
+
+            # Convert "RECORD:SUBRECORD" -> "RECORD SUBRECORD"
+            rec_type: str = ""
+            if rec_elem is not None and rec_elem.text:
+                rec_type = rec_elem.text.replace(":", " ", 1)
+
+            edid: str = (edid_elem.text or "").strip() if edid_elem is not None else ""
+            is_form_id_placeholder = edid.startswith("[") and edid.endswith("]")
+
+            matched: Optional[StringList] = None
+
+            if not is_form_id_placeholder and edid:
+                matched = by_edid_type.get((edid.lower(), rec_type))
+
+            if matched is None:
+                matched = by_original_type.get((original, rec_type))
+
+            if matched is None:
+                continue
+
+            for string in matched:
+                string.string = translated
+                string.status = StringStatus.TranslationComplete
+
+            entries_matched += 1
+
+        self.update_signal.emit()
+        self.log.info(f"xTranslator XML imported: {entries_matched} entries matched.")
+
+        return entries_matched
