@@ -28,6 +28,12 @@ class TranslatorConfig(BaseConfig):
     openai_model: str = "gpt-4o-mini"
     """The model name to use for the OpenAI-compatible API."""
 
+    openai_use_batch: bool = True
+    """Whether to send multiple strings in a single API call when translating with OpenAI."""
+
+    openai_batch_size: int = 50
+    """Number of strings to include per batch API call when using OpenAI."""
+
     show_confirmation_dialogs: bool = True
     """Whether to ask for confirmation before starting a machine translation."""
 

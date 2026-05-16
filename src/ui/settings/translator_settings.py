@@ -8,7 +8,15 @@ from cutleast_core_lib.ui.settings.settings_page import SettingsPage
 from cutleast_core_lib.ui.widgets.enum_radiobutton_widget import EnumRadiobuttonsWidget
 from cutleast_core_lib.ui.widgets.key_edit import KeyLineEdit
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QFormLayout, QLabel, QLineEdit, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QSpinBox,
+    QWidget,
+)
 
 from core.config.translator_config import TranslatorConfig
 from core.translator.apis import TranslatorApi
@@ -32,6 +40,9 @@ class TranslatorSettings(SettingsPage[TranslatorConfig]):
     __openai_base_url_entry: QLineEdit
     __openai_model_label: QLabel
     __openai_model_entry: QLineEdit
+    __openai_batch_label: QLabel
+    __openai_use_batch_box: QCheckBox
+    __openai_batch_size_spinbox: QSpinBox
 
     __show_confirmations_box: QCheckBox
 
@@ -93,6 +104,41 @@ class TranslatorSettings(SettingsPage[TranslatorConfig]):
         )
         self.__flayout.addRow(self.__openai_model_label, self.__openai_model_entry)
 
+        self.__openai_batch_label = QLabel(self.tr("Batch translation"))
+        batch_hlayout = QHBoxLayout()
+
+        self.__openai_use_batch_box = QCheckBox(self.tr("Enabled"))
+        self.__openai_use_batch_box.setChecked(self._initial_config.openai_use_batch)
+        self.__openai_use_batch_box.stateChanged.connect(
+            lambda _: self.changed_signal.emit()
+        )
+        self.__openai_use_batch_box.stateChanged.connect(self.__on_batch_toggled)
+        batch_hlayout.addWidget(self.__openai_use_batch_box)
+
+        batch_hlayout.addSpacing(16)
+
+        batch_size_label = QLabel(self.tr("Batch size:"))
+        batch_hlayout.addWidget(batch_size_label)
+
+        self.__openai_batch_size_spinbox = QSpinBox()
+        self.__openai_batch_size_spinbox.setRange(1, 500)
+        self.__openai_batch_size_spinbox.setValue(self._initial_config.openai_batch_size)
+        self.__openai_batch_size_spinbox.setEnabled(
+            self._initial_config.openai_use_batch
+        )
+        self.__openai_batch_size_spinbox.valueChanged.connect(
+            lambda _: self.changed_signal.emit()
+        )
+        batch_hlayout.addWidget(self.__openai_batch_size_spinbox)
+        batch_hlayout.addStretch()
+
+        self.__openai_batch_label.setEnabled(is_openai)
+        self.__openai_use_batch_box.setEnabled(is_openai)
+        self.__openai_batch_size_spinbox.setEnabled(
+            is_openai and self._initial_config.openai_use_batch
+        )
+        self.__flayout.addRow(self.__openai_batch_label, batch_hlayout)
+
         self.__api_selector.currentValueChanged.connect(self.__on_api_changed)
 
     def __on_api_changed(self, translator_api: TranslatorApi) -> None:
@@ -105,6 +151,17 @@ class TranslatorSettings(SettingsPage[TranslatorConfig]):
         self.__openai_base_url_entry.setEnabled(is_openai)
         self.__openai_model_label.setEnabled(is_openai)
         self.__openai_model_entry.setEnabled(is_openai)
+        self.__openai_batch_label.setEnabled(is_openai)
+        self.__openai_use_batch_box.setEnabled(is_openai)
+        self.__openai_batch_size_spinbox.setEnabled(
+            is_openai and self.__openai_use_batch_box.isChecked()
+        )
+
+    def __on_batch_toggled(self) -> None:
+        self.__openai_batch_size_spinbox.setEnabled(
+            self.__openai_use_batch_box.isEnabled()
+            and self.__openai_use_batch_box.isChecked()
+        )
 
     def __init_confirmation_box(self) -> None:
         self.__show_confirmations_box = QCheckBox(
@@ -124,4 +181,6 @@ class TranslatorSettings(SettingsPage[TranslatorConfig]):
         config.api_key = self.__api_key_entry.text().strip() or None
         config.openai_base_url = self.__openai_base_url_entry.text().strip()
         config.openai_model = self.__openai_model_entry.text().strip() or "gpt-4o-mini"
+        config.openai_use_batch = self.__openai_use_batch_box.isChecked()
+        config.openai_batch_size = self.__openai_batch_size_spinbox.value()
         config.show_confirmation_dialogs = self.__show_confirmations_box.isChecked()
