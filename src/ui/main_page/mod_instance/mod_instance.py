@@ -164,6 +164,9 @@ class ModInstanceWidget(QTreeWidget):
         )
         self.__menu.edit_translation_requested.connect(self.__edit_translation)
         self.__menu.create_translation_requested.connect(self.__create_translation)
+        self.__menu.edit_unfinished_translations_requested.connect(
+            self.__edit_unfinished_translations
+        )
         self.__menu.add_to_ignore_list_requested.connect(self.__add_to_ignore_list)
         self.__menu.open_requested.connect(self.__open_modfile)
         self.__menu.show_strings_requested.connect(self.__show_strings)
@@ -204,7 +207,10 @@ class ModInstanceWidget(QTreeWidget):
 
     def __open_context_menu(self) -> None:
         self.__menu.open(
-            self.__get_current_item(), self.get_selected_items()[1], self.database
+            self.__get_current_item(),
+            self.get_selected_items()[1],
+            self.database,
+            self.mod_instance,
         )
 
     def __load_mod_instance(self) -> None:
@@ -543,11 +549,26 @@ class ModInstanceWidget(QTreeWidget):
             QApplication.activeModalWidget(), process
         )
 
-        if isinstance(current_item, ModFile):
-            current_item.status = TranslationStatus.TranslationIncomplete
-        # TODO: Set status of all relevant mod files if current item is a mod
-
         self.highlight_translation_requested.emit(translation)
+        self.edit_translation_requested.emit(translation)
+
+    def __edit_unfinished_translations(self) -> None:
+        """
+        Opens an editor tab with all unfinished strings from installed translations.
+        """
+
+        translation: Translation = DatabaseService.create_unfinished_translation_view(
+            self.database,
+            self.mod_instance,
+        )
+
+        if not any(translation.strings.values()):
+            messagebox = QMessageBox(QApplication.activeModalWidget())
+            messagebox.setWindowTitle(self.tr("No unfinished translations"))
+            messagebox.setText(self.tr("There are no unfinished translations."))
+            messagebox.exec()
+            return
+
         self.edit_translation_requested.emit(translation)
 
     def __import_as_translation(self) -> None:

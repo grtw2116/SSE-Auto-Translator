@@ -55,6 +55,7 @@ class EditorToolbar(QToolBar):
 
     __search_and_replace_action: QAction
     __api_translation_action: QAction
+    __export_action: QAction
 
     def __init__(self) -> None:
         super().__init__()
@@ -141,10 +142,10 @@ class EditorToolbar(QToolBar):
         )
         save_action.triggered.connect(self.save_requested.emit)
 
-        export_action = self.addAction(
+        self.__export_action = self.addAction(
             IconProvider.get_qta_icon("fa5s.share"), self.tr("Export translation")
         )
-        export_action.triggered.connect(self.export_requested.emit)
+        self.__export_action.triggered.connect(self.export_requested.emit)
 
     def __on_filter_change(self, *args: Any) -> None:
         self.filter_changed.emit(
@@ -165,3 +166,10 @@ class EditorToolbar(QToolBar):
 
         self.__search_and_replace_action.setEnabled(enabled)
         self.__api_translation_action.setEnabled(enabled)
+
+    def set_export_enabled(self, enabled: bool) -> None:
+        """
+        Sets whether the export action is enabled.
+        """
+
+        self.__export_action.setEnabled(enabled)

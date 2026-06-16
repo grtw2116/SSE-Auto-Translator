@@ -1,56 +1,79 @@
 """
 Copyright (c) Cutleast
 
-Wrapper around scripts/build.py that preserves Nuitka's intermediate build
-folder (.nuitka_build_cache/) between runs to speed up incremental compilation.
+Wrapper around scripts/build.py that keeps Nuitka's intermediate C build folder
+between runs. This lets MSVC and Nuitka reuse unchanged compilation output, which
+is the expensive part of repeated standalone builds.
 
-On the first run the cache is empty and build time is identical to build.py.
-On subsequent runs, unchanged modules skip C recompilation — typically 50–80%
-faster when only source files changed.
-
-Usage (from the project root):
-    python scripts/build_cached.py
+Set SSE_AT_CLEAN_NUITKA_CACHE=1 to force a clean Nuitka build.
 """
 
 import logging
+import os
 import runpy
 import shutil
 from pathlib import Path
 
 from cutleast_core_lib.builder.backends.nuitka_backend import NuitkaBackend
 
-_CACHE_DIR = Path(".nuitka_build_cache")
+_LEGACY_CACHE_DIR = Path(".nuitka_build_cache")
 _log = logging.getLogger("BuildCache")
 
 _original_build = NuitkaBackend.build
-_original_clean = NuitkaBackend.clean
+
+
+def _remove_nuitka_remove_output_arg() -> None:
+    """
+    Prevent Nuitka from deleting main.build before it can reuse cached objects.
+    """
+
+    NuitkaBackend.BASE_ARGS = [
+        arg for arg in NuitkaBackend.BASE_ARGS if arg != "--remove-output"
+    ]
+
+
+def _restore_legacy_cache(build_folder: Path) -> None:
+    """
+    Restores the old .nuitka_build_cache/main.build cache once, if it exists.
+    """
+
+    legacy_cache = _LEGACY_CACHE_DIR / build_folder.name
+    if not build_folder.is_dir() and legacy_cache.is_dir():
+        _log.info("[cache] Restoring legacy cache '%s'...", legacy_cache)
+        shutil.copytree(legacy_cache, build_folder)
 
 
 def _patched_build(self, main_module: Path, exe_stem, icon_path, metadata):
-    # Restore app.build/ from cache before Nuitka starts so MSVC can reuse .obj files.
     build_folder = Path(main_module.stem + ".build")
-    cached = _CACHE_DIR / build_folder.name
-    if cached.is_dir() and not build_folder.is_dir():
-        _log.info(f"[cache] Restoring '{build_folder}' from '{cached}'...")
-        shutil.copytree(cached, build_folder)
+
+    if os.environ.get("SSE_AT_CLEAN_NUITKA_CACHE") == "1":
+        _log.info("[cache] Removing cached Nuitka build folder '%s'...", build_folder)
+        shutil.rmtree(build_folder, ignore_errors=True)
     else:
-        _log.info("[cache] No cached build folder found — performing full build.")
+        _restore_legacy_cache(build_folder)
+        if build_folder.is_dir():
+            _log.info("[cache] Reusing Nuitka build folder '%s'.", build_folder)
+        else:
+            _log.info("[cache] No Nuitka build folder found; full build required.")
+
     return _original_build(self, main_module, exe_stem, icon_path, metadata)
 
 
 def _patched_clean(self, main_module: Path, exe_stem: str) -> None:
-    # Save app.build/ to cache before the library deletes it.
     build_folder = Path(main_module.stem + ".build")
-    if build_folder.is_dir():
-        cached = _CACHE_DIR / build_folder.name
-        _CACHE_DIR.mkdir(exist_ok=True)
-        if cached.is_dir():
-            shutil.rmtree(cached)
-        _log.info(f"[cache] Saving '{build_folder}' to '{cached}'...")
-        shutil.copytree(build_folder, cached)
-    _original_clean(self, main_module, exe_stem)
+    dist_folder = Path(main_module.stem + ".dist")
+
+    shutil.rmtree(dist_folder, ignore_errors=True)
+
+    if os.environ.get("SSE_AT_CLEAN_NUITKA_CACHE") == "1":
+        shutil.rmtree(build_folder, ignore_errors=True)
+        _log.info("[cache] Cleaned Nuitka build cache.")
+    elif build_folder.is_dir():
+        (build_folder / ".gitignore").write_text("*")
+        _log.info("[cache] Preserved Nuitka build cache '%s'.", build_folder)
 
 
+_remove_nuitka_remove_output_arg()
 NuitkaBackend.build = _patched_build  # type: ignore[method-assign]
 NuitkaBackend.clean = _patched_clean  # type: ignore[method-assign]
 

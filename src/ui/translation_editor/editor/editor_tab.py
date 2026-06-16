@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from core.config.app_config import AppConfig
 from core.database.exporter import Exporter
 from core.database.translation import Translation
+from core.database.translation_view import TranslationView
 from core.editor.editor import Editor
 from core.file_types.plugin.string import PluginString
 from core.string.string_status import StringStatus
@@ -104,6 +105,7 @@ class EditorTab(QWidget):
         self.__tool_bar.api_translation_requested.connect(self.__translate_with_api)
         self.__tool_bar.save_requested.connect(self.__save)
         self.__tool_bar.export_requested.connect(self.__export)
+        self.__tool_bar.set_export_enabled(not isinstance(translation, TranslationView))
 
         self.__menu.expand_all_clicked.connect(self.expandAll)
         self.__menu.collapse_all_clicked.connect(self.collapseAll)

@@ -2,6 +2,7 @@
 Copyright (c) Cutleast
 """
 
+from copy import deepcopy
 from pathlib import Path
 
 from core.database.database import TranslationDatabase
@@ -101,6 +102,95 @@ class TestDatabaseService(CoreTest):
         # then
         assert created_translation.name == "RSChildren.esp - German"
         assert list(created_translation.strings.keys()) == [Path("RSChildren.esp")]
+
+    def test_create_unfinished_translation_view(self, user_data: UserData) -> None:
+        """
+        Tests `DatabaseService.create_unfinished_translation_view()`.
+        """
+
+        # given
+        database: TranslationDatabase = user_data.database
+        first_translation: Translation = database.user_translations[0]
+        second_translation: Translation = database.user_translations[1]
+        first_modfile: Path = next(iter(first_translation.strings))
+        second_modfile: Path = next(iter(second_translation.strings))
+
+        first_string = first_translation.strings[first_modfile][0]
+        second_string = second_translation.strings[second_modfile][0]
+        complete_string = first_translation.strings[first_modfile][1]
+
+        first_string.status = StringStatus.TranslationRequired
+        first_string.string = None
+        second_string.status = StringStatus.TranslationIncomplete
+        second_string.string = "Draft translation"
+        complete_string.status = StringStatus.TranslationComplete
+
+        # when
+        view: Translation = DatabaseService.create_unfinished_translation_view(database)
+
+        # then
+        view_strings = [
+            string for strings in view.strings.values() for string in strings
+        ]
+        assert first_string in view_strings
+        assert second_string in view_strings
+        assert complete_string not in view_strings
+
+        # when
+        view_string_location = next(
+            (modfile, index)
+            for modfile, strings in view.strings.items()
+            for index, string in enumerate(strings)
+            if string is first_string
+        )
+        view.strings = deepcopy(view.strings)
+        view_modfile, view_index = view_string_location
+        view_first_string = view.strings[view_modfile][view_index]
+        view_first_string.string = "Finished translation"
+        view_first_string.status = StringStatus.TranslationComplete
+        view.save()
+
+        # then
+        assert first_translation.strings[first_modfile][0].string == (
+            "Finished translation"
+        )
+        assert first_translation.strings[first_modfile][0].status == (
+            StringStatus.TranslationComplete
+        )
+
+    def test_create_unfinished_translation_view_with_missing_translation(
+        self, user_data: UserData
+    ) -> None:
+        """
+        Tests `DatabaseService.create_unfinished_translation_view()` with a mod file
+        that has no database translation yet.
+        """
+
+        # given
+        database: TranslationDatabase = user_data.database
+        mod: Mod = self.get_mod_by_name("RS Children Overhaul", user_data.modinstance)
+        modfile: ModFile = self.get_modfile_from_mod(
+            mod, "RSChildren Patch - BS Bruma.esp"
+        )
+        modfile.status = TranslationStatus.RequiresTranslation
+
+        assert database.get_translation_by_modfile_path(modfile.path) is None
+
+        # when
+        view: Translation = DatabaseService.create_unfinished_translation_view(
+            database,
+            user_data.modinstance,
+        )
+
+        # then
+        created_translation = database.get_translation_by_modfile_path(modfile.path)
+        assert created_translation is not None
+        assert modfile.path in view.strings
+        assert modfile.path in created_translation.strings
+        assert all(
+            string.status == StringStatus.TranslationRequired
+            for string in created_translation.strings[modfile.path]
+        )
 
     def test_create_translation_from_mod(self, user_data: UserData) -> None:
         """

@@ -11,10 +11,12 @@ from typing import Any, Optional
 import jstyleson as json
 
 from core.database.translation import Translation
+from core.database.translation_view import TranslationView
 from core.database.translation_service import TranslationService
 from core.mod_file.mod_file import ModFile
 from core.mod_file.translation_status import TranslationStatus
 from core.mod_instance.mod import Mod
+from core.mod_instance.mod_instance import ModInstance
 from core.string.string_status import StringStatus
 from core.string.string_utils import StringUtils
 from core.string.types import StringList
@@ -449,51 +451,13 @@ class DatabaseService:
                 database=database,
             )
 
-        relevant_modfiles: list[ModFile] = list(
-            filter(
-                lambda modfile: (
-                    modfile.status
-                    not in [
-                        TranslationStatus.NoStrings,
-                        TranslationStatus.TranslationInstalled,
-                        TranslationStatus.IsTranslated,
-                    ]
-                    and (modfile.path not in translation.strings)
-                    and (
-                        not only_complete_coverage
-                        or modfile.status
-                        == TranslationStatus.TranslationAvailableInDatabase
-                    )
-                ),
-                mod.modfiles,
-            )
+        relevant_modfiles: list[ModFile] = cls.__get_relevant_modfiles(
+            mod.modfiles, translation, only_complete_coverage
         )
 
-        if not relevant_modfiles:
-            return translation
-
-        translation_strings: dict[Path, StringList] = translation.strings
-        for modfile in relevant_modfiles:
-            modfile_strings: StringList = modfile.get_strings()
-
-            for string in modfile_strings:
-                string.string = string.original
-                string.status = StringStatus.TranslationRequired
-
-            if apply_db:
-                TranslationService.update_strings(
-                    strings_to_update=modfile_strings,
-                    existing_strings=database.strings,
-                )
-
-            translation_strings.setdefault(modfile.path, []).extend(modfile_strings)
-
-        translation.strings = translation_strings
-        translation.remove_duplicates(save=False)
-
-        if add_and_save:
-            translation.save()
-            cls.add_translation(translation, database)
+        cls.__add_modfiles_to_translation(
+            translation, relevant_modfiles, database, apply_db, add_and_save
+        )
 
         cls.log.info(
             f"Created translation with strings for {len(translation.strings)} "
@@ -537,27 +501,212 @@ class DatabaseService:
                 database=database,
             )
 
-        modfile_strings: StringList = modfile.get_strings()
-        for string in modfile_strings:
-            string.string = string.original
-            string.status = StringStatus.TranslationRequired
+        cls.__add_modfiles_to_translation(
+            translation, [modfile], database, apply_db, add_and_save
+        )
 
-        if apply_db:
-            TranslationService.update_strings(
-                strings_to_update=modfile_strings,
-                existing_strings=database.strings,
+        cls.log.info(
+            f"Created translation with {len(translation.strings[modfile.path])} "
+            "string(s)."
+        )
+
+        return translation
+
+    @staticmethod
+    def __get_relevant_modfiles(
+        modfiles: list[ModFile],
+        translation: Translation,
+        only_complete_coverage: bool = False,
+    ) -> list[ModFile]:
+        """
+        Filters mod files to those that can be added to a newly created translation.
+        """
+
+        return list(
+            filter(
+                lambda modfile: (
+                    modfile.status
+                    not in [
+                        TranslationStatus.NoStrings,
+                        TranslationStatus.TranslationInstalled,
+                        TranslationStatus.IsTranslated,
+                    ]
+                    and (modfile.path not in translation.strings)
+                    and (
+                        not only_complete_coverage
+                        or modfile.status
+                        == TranslationStatus.TranslationAvailableInDatabase
+                    )
+                ),
+                unique(modfiles, key=lambda modfile: modfile.full_path),
             )
+        )
 
-        translation.strings.setdefault(modfile.path, []).extend(modfile_strings)
+    @classmethod
+    def __add_modfiles_to_translation(
+        cls,
+        translation: Translation,
+        modfiles: list[ModFile],
+        database: TranslationDatabase,
+        apply_db: bool = True,
+        add_and_save: bool = True,
+    ) -> None:
+        """
+        Adds strings from the specified mod files to an existing translation.
+        """
+
+        if not modfiles:
+            return
+
+        translation_strings: dict[Path, StringList] = translation.strings
+        for modfile in modfiles:
+            modfile_strings: StringList = modfile.get_strings()
+
+            for string in modfile_strings:
+                string.string = string.original
+                string.status = StringStatus.TranslationRequired
+
+            if apply_db:
+                TranslationService.update_strings(
+                    strings_to_update=modfile_strings,
+                    existing_strings=database.strings,
+                )
+
+            translation_strings.setdefault(modfile.path, []).extend(modfile_strings)
+
+        translation.strings = translation_strings
         translation.remove_duplicates(save=False)
 
         if add_and_save:
             translation.save()
             cls.add_translation(translation, database)
 
-        cls.log.info(f"Created translation with {len(modfile_strings)} string(s).")
+    @classmethod
+    def create_unfinished_translation_view(
+        cls,
+        database: TranslationDatabase,
+        mod_instance: Optional[ModInstance] = None,
+        statuses: Optional[list[StringStatus]] = None,
+    ) -> TranslationView:
+        """
+        Creates a transient editor view that contains unfinished strings from every
+        registered user translation.
 
-        return translation
+        Saving the view writes edited strings back to their original translations.
+
+        Args:
+            database (TranslationDatabase): Database to create the view from.
+            mod_instance (Optional[ModInstance], optional):
+                Mod instance whose untranslated files should get blank database
+                translations before creating the view. Defaults to None.
+            statuses (Optional[list[StringStatus]], optional):
+                Statuses to include. Defaults to TranslationRequired and
+                TranslationIncomplete.
+
+        Returns:
+            TranslationView: Transient translation view.
+        """
+
+        statuses = statuses or [
+            StringStatus.TranslationRequired,
+            StringStatus.TranslationIncomplete,
+        ]
+
+        if mod_instance is not None:
+            cls.__create_missing_translations_for_unfinished_view(
+                database, mod_instance
+            )
+
+        view = TranslationView(
+            name=f"Unfinished translations - {database.language.name}",
+            path=database.userdb_path / database.language.id / ".unfinished_view",
+            strings_={},
+        )
+
+        for translation in database.user_translations:
+            for modfile, strings in translation.strings.items():
+                for index, string in enumerate(strings):
+                    if string.status in statuses:
+                        view.add_string(translation, modfile, index, string)
+
+        cls.log.info(
+            f"Created unfinished translation view with "
+            f"{sum(len(strings) for strings in view.strings.values())} string(s)."
+        )
+
+        return view
+
+    @classmethod
+    def __create_missing_translations_for_unfinished_view(
+        cls,
+        database: TranslationDatabase,
+        mod_instance: ModInstance,
+    ) -> None:
+        """
+        Creates regular database translations for untranslated mod files that are not
+        covered by any installed translation yet.
+        """
+
+        missing_translations: list[Translation] = []
+
+        for mod in mod_instance.mods:
+            if mod.mod_type != Mod.Type.Regular:
+                continue
+
+            missing_modfiles: list[ModFile] = [
+                modfile
+                for modfile in mod.modfiles
+                if (
+                    database.get_translation_by_modfile_path(modfile.path) is None
+                    and modfile.status
+                    in [
+                        TranslationStatus.TranslationAvailableInDatabase,
+                        TranslationStatus.TranslationAvailableOnline,
+                        TranslationStatus.RequiresTranslation,
+                        TranslationStatus.NoTranslationAvailable,
+                    ]
+                )
+            ]
+
+            if not missing_modfiles:
+                continue
+
+            translation: Optional[Translation] = database.get_translation_by_mod(mod)
+            if translation is None:
+                translation = cls.create_blank_translation(
+                    name=mod.name + " - " + database.language.name,
+                    strings={},
+                    database=database,
+                )
+
+            cls.__add_modfiles_to_translation(
+                translation,
+                missing_modfiles,
+                database,
+                apply_db=True,
+                add_and_save=False,
+            )
+            for modfile in missing_modfiles:
+                modfile_strings: StringList = translation.strings.get(modfile.path, [])
+                has_unfinished_strings: bool = any(
+                    string.status
+                    in [
+                        StringStatus.TranslationRequired,
+                        StringStatus.TranslationIncomplete,
+                    ]
+                    for string in modfile_strings
+                )
+                modfile.status = (
+                    TranslationStatus.TranslationIncomplete
+                    if has_unfinished_strings
+                    else TranslationStatus.TranslationInstalled
+                )
+
+            translation.save()
+            missing_translations.append(translation)
+
+        if missing_translations:
+            cls.add_translations(missing_translations, database)
 
     @classmethod
     def create_translation_from_mod(

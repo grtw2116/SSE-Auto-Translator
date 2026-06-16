@@ -13,6 +13,8 @@ from core.file_source.file_source import FileSource
 from core.mod_file.mod_file import ModFile
 from core.mod_file.translation_status import TranslationStatus
 from core.mod_instance.mod import Mod
+from core.mod_instance.mod_instance import ModInstance
+from core.string.string_status import StringStatus
 from ui.utilities.icon_provider import IconProvider, ResourceIcon
 
 
@@ -63,6 +65,11 @@ class ModInstanceMenu(Menu):
     create_translation_requested = Signal()
     """Signal emitted when the user clicks on the create translation action."""
 
+    edit_unfinished_translations_requested = Signal()
+    """
+    Signal emitted when the user clicks on the edit unfinished translations action.
+    """
+
     add_to_ignore_list_requested = Signal()
     """Signal emitted when the user clicks on the add to ignore list action."""
 
@@ -104,6 +111,9 @@ class ModInstanceMenu(Menu):
     __show_translation_action: QAction
     __show_translation_strings_action: QAction
     __edit_translation_action: QAction
+
+    # Translation overview
+    __edit_unfinished_translations_action: QAction
 
     # New translations
     __create_translation_action: QAction
@@ -210,6 +220,14 @@ class ModInstanceMenu(Menu):
             self.edit_translation_requested.emit
         )
 
+        self.__edit_unfinished_translations_action = self.__translation_menu.addAction(
+            IconProvider.get_qta_icon("mdi6.playlist-edit"),
+            self.tr("Edit unfinished translations..."),
+        )
+        self.__edit_unfinished_translations_action.triggered.connect(
+            self.edit_unfinished_translations_requested.emit
+        )
+
         self.__translation_menu.addSeparator()
 
         self.__create_translation_action: QAction = self.__translation_menu.addAction(
@@ -276,6 +294,7 @@ class ModInstanceMenu(Menu):
         current_item: Optional[Mod | ModFile],
         selected_modfiles: list[ModFile],
         database: TranslationDatabase,
+        mod_instance: ModInstance,
     ) -> None:
         """
         Opens the context menu at the current cursor position.
@@ -285,6 +304,7 @@ class ModInstanceMenu(Menu):
             selected_modfiles (list[ModFile]): The selected mod files in the tree view.
             database (TranslationDatabase):
                 The database containing the installed translations.
+            mod_instance (ModInstance): Currently loaded mod instance.
         """
 
         # check actions only visible if at least one mod file is selected
@@ -305,6 +325,9 @@ class ModInstanceMenu(Menu):
         self.__show_translation_action.setVisible(translation_installed)
         self.__show_translation_strings_action.setVisible(translation_installed)
         self.__edit_translation_action.setVisible(translation_installed)
+        self.__edit_unfinished_translations_action.setVisible(
+            self.__has_unfinished_translations(database, mod_instance)
+        )
 
         # import action only visible if current item is a mod with at
         # least one translated mod file and no translation is installed
@@ -340,6 +363,7 @@ class ModInstanceMenu(Menu):
             or self.__show_translation_action.isVisible()
             or self.__show_translation_strings_action.isVisible()
             or self.__edit_translation_action.isVisible()
+            or self.__edit_unfinished_translations_action.isVisible()
             or self.__import_as_translation_action.isVisible()
             or self.__create_translation_action.isVisible()
         )
@@ -396,6 +420,43 @@ class ModInstanceMenu(Menu):
             return item.status in valid_states
 
         return any(modfile.status in valid_states for modfile in item.modfiles)
+
+    @staticmethod
+    def __has_unfinished_translations(
+        database: TranslationDatabase,
+        mod_instance: ModInstance,
+    ) -> bool:
+        """
+        Checks if any installed or missing translation has unfinished strings.
+        """
+
+        unfinished_statuses: list[StringStatus] = [
+            StringStatus.TranslationRequired,
+            StringStatus.TranslationIncomplete,
+        ]
+
+        has_installed_unfinished: bool = any(
+            string.status in unfinished_statuses
+            for translation in database.user_translations
+            for strings in translation.strings.values()
+            for string in strings
+        )
+
+        if has_installed_unfinished:
+            return True
+
+        missing_translation_statuses: list[TranslationStatus] = [
+            TranslationStatus.TranslationAvailableInDatabase,
+            TranslationStatus.TranslationAvailableOnline,
+            TranslationStatus.RequiresTranslation,
+            TranslationStatus.NoTranslationAvailable,
+        ]
+
+        return any(
+            database.get_translation_by_modfile_path(modfile.path) is None
+            and modfile.status in missing_translation_statuses
+            for modfile in mod_instance.modfiles
+        )
 
     @staticmethod
     def __is_translation_required(item: Mod | ModFile) -> bool:
